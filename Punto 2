@@ -1,0 +1,71 @@
+% Boxcar lift - elemento barra 2D
+% Unidades: N, mm, MPa
+clear; clc; close all;
+
+E = 200e3;  Sy = 250;  FS = 3.0;          % Acero A36
+b = 200; t = 10;                           % Tubo cuadrado 200x200x10 mm
+A = b^2 - (b-2*t)^2;                       % 7600 mm^2
+
+% Nodos:  A B C D E F G
+XY = 1000*[0 3; 1 3; 3 3; 2 2; 1 1; 0 0; 1 2];
+con = [1 2; 2 3; 3 4; 2 4; 4 7; 2 7; 1 7; 7 5; 1 5; 5 6; 1 6];
+nn = size(XY,1);  ne = size(con,1);
+
+% Carga (gdl x = 2n-1, gdl y = 2n)
+F = zeros(2*nn,1);
+F(2*3) = -200e3;                              % 200 kN en C
+
+fijos = [1 2 11];                             % A fijo, F rodillo (restringe x)
+libres = setdiff(1:2*nn, fijos);
+
+% Ensamble de la matriz global
+K = zeros(2*nn);
+for e = 1:ne
+    i = con(e,1); j = con(e,2);
+    d = XY(j,:) - XY(i,:);  L = norm(d);  c = d(1)/L;  s = d(2)/L;
+    T = [c s];
+    k = E*A/L * [T'*T, -T'*T; -T'*T, T'*T];
+    g = [2*i-1 2*i 2*j-1 2*j];
+    K(g,g) = K(g,g) + k;
+    B(e,:) = [L c s];
+end
+
+% Solucion
+U = zeros(2*nn,1);
+U(libres) = K(libres,libres) \ F(libres);
+
+% Esfuerzos (+ tension, - compresion)
+for e = 1:ne
+    i = con(e,1); j = con(e,2);
+    g = [2*i-1 2*i 2*j-1 2*j];
+    sigma(e,1) = E/B(e,1) * [-B(e,2) -B(e,3) B(e,2) B(e,3)] * U(g);
+end
+
+ux = U(1:2:end);  uy = U(2:2:end);  mag = sqrt(ux.^2 + uy.^2);
+[~, in] = sort(mag, 'descend');
+[~, ie] = sort(abs(sigma), 'descend');
+
+fprintf('Area requerida = %.1f mm^2, area usada = %.1f mm^2\n', max(abs(sigma))*A*FS/Sy, A);
+fprintf('FS real = %.2f\n\n', Sy/max(abs(sigma)));
+disp('Nodos con mayor desplazamiento [nodo ux uy total] (mm)');
+disp([in(1:3) ux(in(1:3)) uy(in(1:3)) mag(in(1:3))]);
+disp('Elementos con mayor esfuerzo [elem nodo_i nodo_j esfuerzo] (MPa)');
+disp([ie(1:3) con(ie(1:3),:) sigma(ie(1:3))]);
+
+% Grafica: sin deformar y deformada
+esc = 50;
+XYd = XY + esc*[ux uy];
+figure; hold on; axis equal; grid on;
+for e = 1:ne
+    n = con(e,:);
+    plot(XY(n,1), XY(n,2), 'k--');
+    if ismember(e, ie(1:3))
+        plot(XYd(n,1), XYd(n,2), 'r', 'LineWidth', 3);
+    else
+        plot(XYd(n,1), XYd(n,2), 'b');
+    end
+end
+plot(XYd(in(1:3),1), XYd(in(1:3),2), 'go', 'MarkerFaceColor', 'g', 'MarkerSize', 10);
+xlabel('x (mm)'); ylabel('y (mm)');
+title('Boxcar lift: sin deformar (--) y deformada x50');
+
