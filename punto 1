@@ -1,0 +1,202 @@
+%% Punto 1
+% Armadura "Tower" - elemento barra 2D
+% Unidades: N, mm, MPa
+clear; clc; close all;
+
+E = 200e3;  Sy = 250;  FS = 2.5;          % Acero A36
+Do = 168.3; t = 10;                        % Tubo circular
+A = pi*(Do^2 - (Do-2*t)^2)/4;
+
+% Nodos: A B C D E F G H I J K L M N
+XY = 1000*[0 0; 4 0; 8 0; 2/3 4; 4 4; 22/3 4; 4/3 8; 4 8; 20/3 8; ...
+           2 12; 4 12; 6 12; 2 16; 6 16];
+
+% Conectividad de los elementos
+con = [1 2; 2 3; 1 4; 3 6; 2 4; 2 6; 4 5; 5 6; 4 7; 6 9; 5 7; 5 9; ...
+       7 8; 8 9; 7 10; 9 12; 8 10; 8 12; 10 11; 11 12; 10 13; 12 14; ...
+       11 13; 11 14; 13 14];
+
+nn = size(XY,1);
+ne = size(con,1);
+
+% Cargas (gdl x = 2n-1, gdl y = 2n)
+F = zeros(2*nn,1);
+
+% Cargas horizontales en M, J, G y D
+F([25 19 13 7]) = [50e3 100e3 100e3 100e3];
+
+% Cargas verticales en M y N
+F([26 28]) = -60e3;
+
+% Restricciones
+% A: gdl 1 y 2
+% C: gdl 6
+fijos = [1 2 6];
+
+libres = setdiff(1:2*nn, fijos);
+
+%% Ensamble de la matriz global
+
+K = zeros(2*nn);
+B = zeros(ne,3);
+
+for e = 1:ne
+
+    i = con(e,1);
+    j = con(e,2);
+
+    d = XY(j,:) - XY(i,:);
+    L = norm(d);
+
+    c = d(1)/L;
+    s = d(2)/L;
+
+    T = [c s];
+
+    k = E*A/L * [T'*T, -T'*T;
+                 -T'*T, T'*T];
+
+    g = [2*i-1 2*i 2*j-1 2*j];
+
+    K(g,g) = K(g,g) + k;
+
+    B(e,:) = [L c s];
+
+end
+
+%% Solución
+
+U = zeros(2*nn,1);
+
+U(libres) = K(libres,libres) \ F(libres);
+
+%% Esfuerzos
+% (+) tensión
+% (-) compresión
+
+sigma = zeros(ne,1);
+
+for e = 1:ne
+
+    i = con(e,1);
+    j = con(e,2);
+
+    g = [2*i-1 2*i 2*j-1 2*j];
+
+    sigma(e,1) = E/B(e,1) * ...
+        [-B(e,2) -B(e,3) B(e,2) B(e,3)] * U(g);
+
+end
+
+%% Resultados
+
+ux = U(1:2:end);
+uy = U(2:2:end);
+
+mag = sqrt(ux.^2 + uy.^2);
+
+% Ordenar desplazamientos
+[~, in] = sort(mag, 'descend');
+
+% Ordenar esfuerzos
+[~, ie] = sort(abs(sigma), 'descend');
+
+fprintf('Area requerida = %.1f mm^2, area usada = %.1f mm^2\n', ...
+    max(abs(sigma))*A*FS/Sy, A);
+
+fprintf('FS real = %.2f\n\n', ...
+    Sy/max(abs(sigma)));
+
+disp('Nodos con mayor desplazamiento [nodo ux uy total] (mm)');
+
+disp([in(1:3) ...
+      ux(in(1:3)) ...
+      uy(in(1:3)) ...
+      mag(in(1:3))]);
+
+disp('Elementos con mayor esfuerzo [elem nodo_i nodo_j esfuerzo] (MPa)');
+
+disp([ie(1:3) ...
+      con(ie(1:3),:) ...
+      sigma(ie(1:3))]);
+
+%% Grafica: estructura sin deformar y deformada
+
+esc = 80;
+
+% Coordenadas deformadas
+XYd = XY + esc*[ux uy];
+
+figure('Color','w','Visible','on');
+
+hold on;
+grid on;
+axis equal;
+
+%% Estructura sin deformar
+
+for e = 1:ne
+
+    n = con(e,:);
+
+    plot(XY(n,1), XY(n,2), ...
+        'k--', ...
+        'LineWidth', 1);
+
+end
+
+%% Estructura deformada
+
+for e = 1:ne
+
+    n = con(e,:);
+
+    % Tres elementos con mayor esfuerzo en rojo
+    if ismember(e, ie(1:3))
+
+        plot(XYd(n,1), XYd(n,2), ...
+            'r-', ...
+            'LineWidth', 2.5);
+
+    else
+
+        plot(XYd(n,1), XYd(n,2), ...
+            'b-', ...
+            'LineWidth', 1.5);
+
+    end
+
+end
+
+%% Nodos con mayor desplazamiento
+
+plot(XYd(in(1:3),1), ...
+     XYd(in(1:3),2), ...
+     'go', ...
+     'MarkerFaceColor','g', ...
+     'MarkerSize',8);
+
+%% Nodos originales
+
+plot(XY(:,1), ...
+     XY(:,2), ...
+     'ko', ...
+     'MarkerFaceColor','k', ...
+     'MarkerSize',4);
+
+%% Etiquetas
+
+xlabel('x (mm)');
+ylabel('y (mm)');
+
+title('Tower: sin deformar (--) y deformada x80');
+
+%% Ajuste de límites
+
+xlim([min(XYd(:,1))-500, max(XYd(:,1))+500]);
+
+ylim([min(XYd(:,2))-500, max(XYd(:,2))+500]);
+
+drawnow;
+
+hold off;
